@@ -4,6 +4,8 @@ import streamlit as st
 import os, requests
 import google.generativeai as genai
 import json
+import matplotlib.pyplot as plt
+import io
 
 
 from sklearn.cluster import KMeans
@@ -57,7 +59,7 @@ def generate_spending_quiz(data, num_questions=3):
         raise ValueError("Dataset must contain 'Date', 'Category', and 'Amount' columns.")
     
     # Format the date and extract month
-    data['Date'] = pd.to_datetime(data['Date'])
+    data['Date'] = pd.to_datetime(data['Date'], format='%d/%m/%Y')
     data['Month'] = data['Date'].dt.to_period('M')
     
     # Find top spending categories for the latest month in the dataset
@@ -139,15 +141,12 @@ def chatbot_response(user_query):
         headers={"Authorization": f"Bearer {AUTHORIZATION_TOKEN}"}
     )
 
-    print(response.text)
-
     # Parse the response
     response_data = response.json()
     response_text = response_data['choices'][0]['message']['content']
     
     # Return the generated text
     return response_text
-
 
 def calculate_savings(data):
     # Parse dates using the correct format
@@ -171,7 +170,7 @@ def calculate_savings(data):
     print("total_expenses of a month", total_expenses)
     
     savings = income + total_expenses
-    
+
     return savings
 
 def calculate_age(born):
@@ -348,10 +347,155 @@ def generate_financial_plan(data, risk_tolerance, goal_amount, timeframe_months)
     else:
         print("No summariser response found.")
 
+
+def plot_monthly_expenses(data):
+    # Ensure the data is properly formatted
+    data['Date'] = pd.to_datetime(data['Date'], format='%d/%m/%Y')
+    data['Month'] = data['Date'].dt.to_period('M')
+
+    # Filter for expenses
+    expense_data = data[data['Type'].str.lower() == 'expense']
+    
+    # Group by month and category to get total expenses
+    monthly_expenses = expense_data.groupby(['Month', 'Category'])['Amount'].sum().unstack(fill_value=0)
+    
+    # Plotting the data
+    monthly_expenses.plot(kind='bar', stacked=True, figsize=(10, 6), cmap='Set3')
+    plt.title("Monthly Expenses by Category")
+    plt.ylabel("Amount (£)")
+    plt.xlabel("Month")
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+def plot_savings(data):
+    # Ensure the data is properly formatted
+    data['Date'] = pd.to_datetime(data['Date'], format='%d/%m/%Y')
+    data['Month'] = data['Date'].dt.to_period('M')
+
+    # Calculate income and expenses for each month
+    income_data = data[data['Type'].str.lower() == 'income']
+    expense_data = data[data['Type'].str.lower() == 'expense']
+    
+    monthly_income = income_data.groupby('Month')['Amount'].sum()
+    monthly_expenses = expense_data.groupby('Month')['Amount'].sum()
+    
+    # Calculate savings: Income - Expenses
+    savings = monthly_income - monthly_expenses
+    
+    # Plotting savings
+    savings.plot(kind='line', marker='o', figsize=(10, 6), color='green')
+    plt.title("Monthly Savings")
+    plt.ylabel("Savings (£)")
+    plt.xlabel("Month")
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_expenses_by_category(data, month):
+    # Filter for expenses in the specified month
+    data['Date'] = pd.to_datetime(data['Date'], format='%d/%m/%Y')
+    data['Month'] = data['Date'].dt.to_period('M')
+    expense_data = data[data['Type'].str.lower() == 'expense']
+    monthly_expenses = expense_data[expense_data['Month'] == month]
+    
+    # Group by category and sum the amounts
+    category_expenses = monthly_expenses.groupby('Category')['Amount'].sum()
+    
+    # Plotting the data as a pie chart
+    plt.figure(figsize=(7, 7))
+    category_expenses.plot(kind='pie', autopct='%1.1f%%', colors=plt.cm.Paired.colors, startangle=90)
+    plt.title(f"Expense Breakdown for {month}")
+    plt.ylabel('')
+    plt.tight_layout()
+    plt.show()
+
+def plot_income_vs_expenses(data):
+    # Ensure the data is properly formatted
+    data['Date'] = pd.to_datetime(data['Date'], format='%d/%m/%Y')
+    data['Month'] = data['Date'].dt.to_period('M')
+
+    # Group income and expense by month
+    income_data = data[data['Type'].str.lower() == 'income']
+    expense_data = data[data['Type'].str.lower() == 'expense']
+    
+    monthly_income = income_data.groupby('Month')['Amount'].sum()
+    monthly_expenses = expense_data.groupby('Month')['Amount'].sum()
+
+    # Plotting income vs expenses
+    plt.figure(figsize=(10, 6))
+    plt.plot(monthly_income.index.astype(str), monthly_income, label='Income', color='blue', marker='o')
+    plt.plot(monthly_expenses.index.astype(str), monthly_expenses, label='Expenses', color='red', marker='o')
+    plt.title("Monthly Income vs Expenses")
+    plt.ylabel("Amount (£)")
+    plt.xlabel("Month")
+    plt.xticks(rotation=45)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+def plot_to_streamlit(fig):
+    # Convert the plot to a PNG image and display in Streamlit
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    st.image(buf)
+
+st.markdown("""
+    <style>
+        .chat-container {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            width: 300px;
+            padding: 10px;
+            background-color: rgba(255, 255, 255, 0.9);
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            z-index: 1000;
+        }
+        .chat-container input {
+            width: 100%;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
+def plot_monthly_expenses(df):
+    if df is None or df.empty:
+        st.error("No data available for expenses.")
+        return None  # Ensure we don't return an invalid figure
+    
+    df['Date'] = pd.to_datetime(df['Date'])  # Convert Date column to datetime
+    df['Month'] = df['Date'].dt.strftime('%Y-%m')  # Extract month as "YYYY-MM"
+    
+    expense_data = df[df['Type'].str.lower() == 'expense']  # Filter only expenses
+
+    if expense_data.empty:
+        st.warning("No expense data available to plot.")
+        return None
+    
+    monthly_expenses = expense_data.groupby(['Month', 'Category'])['Amount'].sum().unstack(fill_value=0)
+
+    # Create figure
+    fig, ax = plt.subplots(figsize=(10, 5))
+    monthly_expenses.plot(kind='bar', stacked=True, ax=ax)
+    ax.set_title("Monthly Expenses Breakdown")
+    ax.set_ylabel("Amount Spent")
+    ax.set_xlabel("Month")
+    ax.legend(title="Category", bbox_to_anchor=(1.05, 1), loc='upper left')
+
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+
+    return fig 
+
 def main():
-    st.title("Wealth Wise Dashboard")
+    st.title("Wealth Wise")
     min_date = date(1984, 1, 1)
     max_date = date.today()
+    dataset = ""
+    
     # Step 1: Ask for basic user information
     name = st.text_input("What's your name? (Or should we just call you 'Legend'?)")
     
@@ -360,7 +504,7 @@ def main():
     if age < 18:
         st.error("You should be studying, not working on financial planning!")
     elif age > 40:
-        st.info("Hmm! You missed the train! Its always never late to start financial planning :P ")
+        st.info("Hmm! You missed the train! It's always never late to start financial planning :P ")
     
     email = st.text_input("Email address? We won't spam you, promise!")
     
@@ -397,7 +541,7 @@ def main():
             
             if uploaded_file is not None:
                 data = load_financial_data(uploaded_file)
-                
+                dataset = data
                 if goal == "Budgeting":
                     budget_analysis = analyze_budget(data)
                     st.subheader("Budgeting Analysis")
@@ -417,11 +561,61 @@ def main():
                     financial_plan = generate_financial_plan(data, st.session_state.risk_tolerance, st.session_state.goal_amount, st.session_state.timeframe_months)
                     st.subheader("Comprehensive Financial Plan")
                     st.write(financial_plan)
+
+                # **Spending Quiz Integration**
+                st.subheader("Test Your Financial Wisdom! 🎯")
+                quiz_questions = generate_spending_quiz(data, num_questions=3)
+                
+                if 'current_question' not in st.session_state:
+                    st.session_state.current_question = 0
+                    st.session_state.score = 0
+
+                question = quiz_questions[st.session_state.current_question]
+                st.subheader(f"Question {st.session_state.current_question + 1}: {question['question']}")
+                options = question['options']
+                answer = st.radio("Choose your answer:", options)
+
+                if st.button("Submit Answer"):
+                    if answer == question['correct_answer']:
+                        st.session_state.score += 1
+                        st.success("Correct! You're a financial genius! 💡")
+                    else:
+                        st.error(f"Oops! The correct answer was {question['correct_answer']}. Better luck next time!")
+
+                    # Move to next question
+                    if st.session_state.current_question < len(quiz_questions) - 1:
+                        st.session_state.current_question += 1
+                    else:
+                        st.write(f"Quiz completed! Your score: {st.session_state.score}/{len(quiz_questions)}")
+                        st.session_state.current_question = 0
+                        st.session_state.score = 0
+            
+            # st.subheader("Monthly Expenses Breakdown")
+            # fig1 = plot_monthly_expenses(dataset)  
+            # if fig1: 
+            #     plot_to_streamlit(fig1)
+            # else:
+            #     st.warning("Could not generate the expenses chart.")        
+
+
+    # Chat section always visible at the corner
+    st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+
+    # Savings Section
+    # st.subheader("Monthly Savings Trend")
+    # fig2 = plot_savings(calculate_savings(data))
+    # plot_to_streamlit(fig2)
+
+    # # Income vs Expenses Section
+    # st.subheader("Income vs Expenses Over Time")
+    # fig3 = plot_income_vs_expenses(data)
+    # plot_to_streamlit(fig3)
     st.subheader("Chat with your Financial Advisor")
     user_query = st.text_input("Got a question about your finances? Ask away!")
     if user_query:
         response = chatbot_response(user_query)
         st.write(response)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # Run the Streamlit app
 if __name__ == "__main__":
